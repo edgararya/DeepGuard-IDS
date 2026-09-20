@@ -48,7 +48,11 @@ async function backendFetch(route, options = {}) {
       data && typeof data.message === 'string' && data.message
         ? data.message
         : `Backend responded with status ${response.status}`;
-    throw new Error(message);
+
+    // ipcMain only forwards the message string, so keep the backend's error_code
+    // recoverable by prefixing it; renderer code can split on the first ': '.
+    const errorCode = data && typeof data.error_code === 'string' && data.error_code;
+    throw new Error(errorCode ? `${errorCode}: ${message}` : message);
   }
 
   return data;
