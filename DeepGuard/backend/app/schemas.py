@@ -1,44 +1,44 @@
-﻿from pydantic import BaseModel
-from typing import Optional, Dict, List, Any
+from pydantic import BaseModel
+from typing import Optional, List
+
 
 class HealthResponse(BaseModel):
-    success: bool
-    message: str
-    processing_time_ms: int
     status: str
-    warnings: List[str]
-    models_loaded: Dict[str, bool]
+    models_loaded: bool
+    version: str
 
-class ImageAnalysisResult(BaseModel):
-    has_face: bool
-    fake_prob: float
-    verdict: str
-    scores: Dict[str, Optional[float]]
-    face_box: Optional[List[int]]
 
-class ImageAnalysisResponse(BaseModel):
-    success: bool
+class ErrorResponse(BaseModel):
+    error_code: str
     message: str
-    processing_time_ms: int
-    warnings: List[str] = []
-    result: Optional[ImageAnalysisResult] = None
-    error: Optional[str] = None
+    detail: str
 
-class VideoAnalysisResult(BaseModel):
-    fps: float
-    duration_seconds: float
-    total_frames_analyzed: int
-    fake_frame_count: int
-    real_frame_count: int
-    no_face_count: int
-    avg_fake_prob: float
-    max_fake_prob: float
-    verdict: str
 
-class VideoAnalysisResponse(BaseModel):
-    success: bool
-    message: str
+class PerModelScores(BaseModel):
+    mesonet_1: Optional[float] = None
+    mesonet_2: Optional[float] = None
+    mesonet_3: Optional[float] = None
+    xception: Optional[float] = None
+
+
+class DetectResponse(BaseModel):
+    label: str
+    confidence: float
+    per_model_scores: PerModelScores
+    ela_score: Optional[float] = None
+    blur_score: Optional[float] = None
+    media_type: str
+    frames_analyzed: Optional[int] = None
     processing_time_ms: int
-    warnings: List[str] = []
-    result: Optional[VideoAnalysisResult] = None
-    error: Optional[str] = None
+
+
+class HistoryEntry(BaseModel):
+    id: str
+    source: str
+    label: str
+    confidence: float
+    timestamp: int
+
+
+class HistoryResponse(BaseModel):
+    entries: List[HistoryEntry]

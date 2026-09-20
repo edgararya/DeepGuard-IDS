@@ -26,7 +26,7 @@ _WEIGHTS_DIR = os.path.join(_BACKEND_DIR, 'weights')
 
 MESO_SIZE = 256
 XCP_SIZE = 299
-FAKE_THRESHOLD = 44.0
+FAKE_THRESHOLD = 0.44
 
 def _build_xception_model():
     """Build Xception single-frame model matching trained architecture."""
@@ -96,17 +96,17 @@ except Exception as e:
 
 def get_model_status():
     loaded = {
-        "meso_df": clf_meso_df is not None,
-        "meso_f2f": clf_meso_f2f is not None,
-        "inception": clf_inception is not None,
+        "mesonet_1": clf_meso_df is not None,
+        "mesonet_2": clf_meso_f2f is not None,
+        "mesonet_3": clf_inception is not None,
         "xception": clf_xception is not None,
     }
     warnings = []
-    if not loaded["meso_df"]:
+    if not loaded["mesonet_1"]:
         warnings.append("Meso4_DF gagal diload")
-    if not loaded["meso_f2f"]:
+    if not loaded["mesonet_2"]:
         warnings.append("Meso4_F2F gagal diload")
-    if not loaded["inception"]:
+    if not loaded["mesonet_3"]:
         warnings.append("MesoInception_DF gagal diload")
     if not loaded["xception"]:
         warnings.append("XceptionNet gagal diload, pembobotan disesuaikan")
@@ -115,32 +115,32 @@ def get_model_status():
     if active_count == 4:
         status = "ok"
     elif active_count > 0:
-        status = "partial"
+        status = "degraded"
     else:
         status = "error"
     return status, warnings, loaded
 
 def run_inference(face_crop_bgr: np.ndarray) -> dict:
     """
-    Run 4-model ensemble prediction on face crop.
+    Run 4-model ensemble prediction on a face crop.
     Dynamically weights models based on availability.
     Returns dict:
       {
-        "fake_prob": float,
-        "verdict": "REAL" | "FAKE",
-        "scores": {
-          "meso_df": float | None,
-          "meso_f2f": float | None,
-          "inception": float | None,
-          "xception": float | None
+        "label": "real" | "fake",
+        "confidence": float (0..1 fake probability),
+        "per_model_scores": {
+          "mesonet_1": float | None,   # Meso4_DF
+          "mesonet_2": float | None,   # Meso4_F2F
+          "mesonet_3": float | None,   # MesoInception_DF
+          "xception": float | None     # XceptionNet
         },
         "warnings": list
       }
     """
-    scores = {
-        "meso_df": None,
-        "meso_f2f": None,
-        "inception": None,
+    per_model_scores = {
+        "mesonet_1": None,
+        "mesonet_2": None,
+        "mesonet_3": None,
         "xception": None
     }
     weighted_real_sum = 0.0
@@ -151,46 +151,43 @@ def run_inference(face_crop_bgr: np.ndarray) -> dict:
     img_meso = face_meso.astype(np.float32) / 255.0
     img_meso = np.expand_dims(img_meso, axis=0)
 
-    # 1. Meso4_DF (weight 1.0)
+    # 1. Meso4_DF -> mesonet_1 (weight 1.0)
     if clf_meso_df is not None:
         try:
             r = clf_meso_df.predict(img_meso)
             if r is not None and len(r) > 0:
                 real_score = float(r[0][0])
-                fake_score = round((1.0 - real_score) * 100, 1)
-                scores["meso_df"] = fake_score
+                per_model_scores["mesonet_1"] = round(1.0 - real_score, 4)
                 weighted_real_sum += real_score * 1.0
                 total_weight += 1.0
         except Exception as e:
             print(f"[ERR] Inference Meso4_DF: {e}")
 
-    # 2. Meso4_F2F (weight 1.0)
+    # 2. Meso4_F2F -> mesonet_2 (weight 1.0)
     if clf_meso_f2f is not None:
         try:
             r = clf_meso_f2f.predict(img_meso)
             if r is not None and len(r) > 0:
                 real_score = float(r[0][0])
-                fake_score = round((1.0 - real_score) * 100, 1)
-                scores["meso_f2f"] = fake_score
+                per_model_scores["mesonet_2"] = round(1.0 - real_score, 4)
                 weighted_real_sum += real_score * 1.0
                 total_weight += 1.0
         except Exception as e:
             print(f"[ERR] Inference Meso4_F2F: {e}")
 
-    # 3. MesoInception_DF (weight 2.0)
+    # 3. MesoInception_DF -> mesonet_3 (weight 2.0)
     if clf_inception is not None:
         try:
             r = clf_inception.predict(img_meso)
             if r is not None and len(r) > 0:
                 real_score = float(r[0][0])
-                fake_score = round((1.0 - real_score) * 100, 1)
-                scores["inception"] = fake_score
+                per_model_scores["mesonet_3"] = round(1.0 - real_score, 4)
                 weighted_real_sum += real_score * 2.0
                 total_weight += 2.0
         except Exception as e:
             print(f"[ERR] Inference MesoInception_DF: {e}")
 
-    # 4. XceptionNet (weight 3.0)
+    # 4. XceptionNet -> xception (weight 3.0)
     if clf_xception is not None:
         try:
             face_xcp = cv2.resize(face_crop_bgr, (XCP_SIZE, XCP_SIZE))
@@ -200,10 +197,8 @@ def run_inference(face_crop_bgr: np.ndarray) -> dict:
             if pred is not None and len(pred) > 0:
                 # Xception training: 0 = REAL, 1 = FAKE
                 fake_raw = float(pred[0][0])
-                real_score = 1.0 - fake_raw
-                fake_score = round(fake_raw * 100, 1)
-                scores["xception"] = fake_score
-                weighted_real_sum += real_score * 3.0
+                per_model_scores["xception"] = round(fake_raw, 4)
+                weighted_real_sum += (1.0 - fake_raw) * 3.0
                 total_weight += 3.0
         except Exception as e:
             print(f"[ERR] Inference XceptionNet: {e}")
@@ -212,14 +207,14 @@ def run_inference(face_crop_bgr: np.ndarray) -> dict:
         raise RuntimeError("ALL_MODELS_FAILED")
 
     avg_real = weighted_real_sum / total_weight
-    fake_prob = round((1.0 - avg_real) * 100, 1)
-    verdict = "FAKE" if fake_prob > FAKE_THRESHOLD else "REAL"
+    confidence = round(1.0 - avg_real, 4)
+    label = "fake" if confidence > FAKE_THRESHOLD else "real"
 
     _, warnings, _ = get_model_status()
 
     return {
-        "fake_prob": fake_prob,
-        "verdict": verdict,
-        "scores": scores,
+        "label": label,
+        "confidence": confidence,
+        "per_model_scores": per_model_scores,
         "warnings": warnings
     }

@@ -2,3 +2,4 @@ weights/
 __pycache__/
 *.pyc
 *.h5
+data/
