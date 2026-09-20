@@ -4,6 +4,8 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
+const { initBackendBridge } = require('./pythonBridge');
+
 const DEV_SERVER_URL = process.env.ELECTRON_START_URL;
 
 let mainWindow = null;
@@ -31,6 +33,9 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+// Start the packaged Python backend and stop it on quit.
+initBackendBridge();
 
 app.whenReady().then(() => {
   createWindow();
