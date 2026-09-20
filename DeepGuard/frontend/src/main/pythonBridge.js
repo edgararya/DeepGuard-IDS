@@ -121,6 +121,10 @@ function startBackend(onStartupFailure) {
   backendProcess.on('exit', (code, signal) => {
     console.log(`[pythonBridge] Backend exited (code=${code}, signal=${signal})`);
     clearStartupTimeout();
+    if (backendPort === null) {
+      // Exiting before reporting a port is a startup crash, not a runtime one.
+      reportStartupFailure(`Backend exited before becoming ready (code=${code}, signal=${signal})`);
+    }
     backendProcess = null;
     backendPort = null;
   });
@@ -143,6 +147,7 @@ function stopBackend() {
   backendProcess = null;
   backendPort = null;
   clearStartupTimeout();
+  startupFailureReported = true; // the exit that follows is an intentional shutdown
 
   try {
     if (process.platform === 'win32') {
