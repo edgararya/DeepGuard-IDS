@@ -16,7 +16,8 @@ const STARTUP_TIMEOUT_MS = 30000;
 let backendProcess = null;
 let backendPort = null;
 let startupTimeout = null;
-let startupTimeoutHandler = null;
+let startupFailureHandler = null;
+let startupFailureReported = false;
 
 function backendExecutablePath() {
   const binary = process.platform === 'win32' ? 'backend.exe' : 'backend';
@@ -35,20 +36,41 @@ function clearStartupTimeout() {
   }
 }
 
-function startBackend(onStartupTimeout) {
+// Single entry point for every way a startup attempt can fail, so callers always
+// get told about it instead of being left waiting for a readiness line forever.
+function reportStartupFailure(message) {
+  if (startupFailureReported) {
+    return; // only the first failure of the current attempt is reported
+  }
+  startupFailureReported = true;
+
+  const prefixed = `[pythonBridge] ${message}`;
+  console.error(prefixed);
+
+  if (typeof startupFailureHandler === 'function') {
+    try {
+      startupFailureHandler(new Error(prefixed));
+    } catch (err) {
+      console.error(`[pythonBridge] onStartupFailure callback failed: ${err.message}`);
+    }
+  }
+}
+
+function startBackend(onStartupFailure) {
   if (backendProcess) {
     return; // already running
   }
 
   clearStartupTimeout();
+  startupFailureReported = false;
 
-  if (typeof onStartupTimeout === 'function') {
-    startupTimeoutHandler = onStartupTimeout;
+  if (typeof onStartupFailure === 'function') {
+    startupFailureHandler = onStartupFailure;
   }
 
   const executable = backendExecutablePath();
   if (!fs.existsSync(executable)) {
-    console.error(`[pythonBridge] Backend executable not found: ${executable}`);
+    reportStartupFailure(`Backend executable not found: ${executable}`);
     return;
   }
 
@@ -64,15 +86,7 @@ function startBackend(onStartupTimeout) {
     if (backendPort !== null) {
       return; // it did become ready after all
     }
-    const message = `[pythonBridge] Backend did not become ready within ${STARTUP_TIMEOUT_MS / 1000}s`;
-    console.error(message);
-    if (typeof startupTimeoutHandler === 'function') {
-      try {
-        startupTimeoutHandler(new Error(message));
-      } catch (err) {
-        console.error(`[pythonBridge] onStartupTimeout callback failed: ${err.message}`);
-      }
-    }
+    reportStartupFailure(`Backend did not become ready within ${STARTUP_TIMEOUT_MS / 1000}s`);
   }, STARTUP_TIMEOUT_MS);
 
   let buffer = '';
@@ -99,7 +113,7 @@ function startBackend(onStartupTimeout) {
   });
 
   backendProcess.on('error', (err) => {
-    console.error(`[pythonBridge] Failed to start backend: ${err.message}`);
+    reportStartupFailure(`Failed to start backend: ${err.message}`);
     clearStartupTimeout();
     backendProcess = null;
   });
@@ -144,8 +158,8 @@ function stopBackend() {
 }
 
 function initBackendBridge(options = {}) {
-  const { onStartupTimeout } = options;
-  app.whenReady().then(() => startBackend(onStartupTimeout));
+  const { onStartupFailure } = options;
+  app.whenReady().then(() => startBackend(onStartupFailure));
   app.on('before-quit', stopBackend);
 }
 
