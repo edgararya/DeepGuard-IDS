@@ -2,7 +2,7 @@
 // Manages the PyInstaller-packaged Python backend as a child process.
 
 const { app } = require('electron');
-const { spawn, execSync } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -10,8 +10,13 @@ const fs = require('fs');
 //   [Xeptocore] Backend ready on port 8000
 const PORT_PATTERN = /Backend ready on port\s+(\d+)/;
 
+// The backend picks its own free port, so we wait for it to report that port.
+const STARTUP_TIMEOUT_MS = 30000;
+
 let backendProcess = null;
 let backendPort = null;
+let startupTimeout = null;
+let startupTimeoutHandler = null;
 
 function backendExecutablePath() {
   const binary = process.platform === 'win32' ? 'backend.exe' : 'backend';
@@ -23,9 +28,22 @@ function backendExecutablePath() {
   return path.join(__dirname, 'backend', platformDir, binary);
 }
 
-function startBackend() {
+function clearStartupTimeout() {
+  if (startupTimeout !== null) {
+    clearTimeout(startupTimeout);
+    startupTimeout = null;
+  }
+}
+
+function startBackend(onStartupTimeout) {
   if (backendProcess) {
     return; // already running
+  }
+
+  clearStartupTimeout();
+
+  if (typeof onStartupTimeout === 'function') {
+    startupTimeoutHandler = onStartupTimeout;
   }
 
   const executable = backendExecutablePath();
@@ -34,11 +52,28 @@ function startBackend() {
     return;
   }
 
+  // No PORT is passed: the backend selects an available port itself and reports it on stdout.
   backendProcess = spawn(executable, [], {
-    env: { ...process.env, PORT: '8000' },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   });
+
+  // Fail fast if the backend never reports a port (e.g. it hangs while loading ML models).
+  startupTimeout = setTimeout(() => {
+    startupTimeout = null;
+    if (backendPort !== null) {
+      return; // it did become ready after all
+    }
+    const message = `[pythonBridge] Backend did not become ready within ${STARTUP_TIMEOUT_MS / 1000}s`;
+    console.error(message);
+    if (typeof startupTimeoutHandler === 'function') {
+      try {
+        startupTimeoutHandler(new Error(message));
+      } catch (err) {
+        console.error(`[pythonBridge] onStartupTimeout callback failed: ${err.message}`);
+      }
+    }
+  }, STARTUP_TIMEOUT_MS);
 
   let buffer = '';
   backendProcess.stdout.on('data', (chunk) => {
@@ -53,6 +88,7 @@ function startBackend() {
       const match = line.match(PORT_PATTERN);
       if (match && backendPort === null) {
         backendPort = parseInt(match[1], 10);
+        clearStartupTimeout();
         console.log(`[pythonBridge] Backend ready on port ${backendPort}`);
       }
     }
@@ -64,11 +100,13 @@ function startBackend() {
 
   backendProcess.on('error', (err) => {
     console.error(`[pythonBridge] Failed to start backend: ${err.message}`);
+    clearStartupTimeout();
     backendProcess = null;
   });
 
   backendProcess.on('exit', (code, signal) => {
     console.log(`[pythonBridge] Backend exited (code=${code}, signal=${signal})`);
+    clearStartupTimeout();
     backendProcess = null;
     backendPort = null;
   });
@@ -76,6 +114,10 @@ function startBackend() {
 
 function getBackendPort() {
   return backendPort;
+}
+
+function isBackendReady() {
+  return backendPort !== null;
 }
 
 function stopBackend() {
@@ -86,11 +128,12 @@ function stopBackend() {
   const proc = backendProcess;
   backendProcess = null;
   backendPort = null;
+  clearStartupTimeout();
 
   try {
     if (process.platform === 'win32') {
       // /T kills the whole process tree; /F forces. Required for PyInstaller one-file builds.
-      execSync(`taskkill /pid ${proc.pid} /T /F`);
+      execFileSync('taskkill', ['/pid', String(proc.pid), '/T', '/F']);
     } else {
       // Negative PID kills the entire detached process group.
       process.kill(-proc.pid, 'SIGTERM');
@@ -100,14 +143,16 @@ function stopBackend() {
   }
 }
 
-function initBackendBridge() {
-  app.whenReady().then(startBackend);
+function initBackendBridge(options = {}) {
+  const { onStartupTimeout } = options;
+  app.whenReady().then(() => startBackend(onStartupTimeout));
   app.on('before-quit', stopBackend);
 }
 
 module.exports = {
   startBackend,
   getBackendPort,
+  isBackendReady,
   stopBackend,
   initBackendBridge,
 };
