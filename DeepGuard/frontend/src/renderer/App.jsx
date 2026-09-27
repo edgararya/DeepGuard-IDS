@@ -5,7 +5,7 @@ import { useState } from 'react';
 
 const TABS = [
   { id: 'upload', label: 'Upload File' },
-  { id: 'live', label: 'Live Scan' },
+  { id: 'history', label: 'History' },
 ];
 
 function App() {
@@ -41,12 +41,12 @@ function App() {
         </section>
 
         <section
-          id="panel-live"
+          id="panel-history"
           role="tabpanel"
-          aria-labelledby="tab-live"
-          hidden={activeTab !== 'live'}
+          aria-labelledby="tab-history"
+          hidden={activeTab !== 'history'}
         >
-          Live Scan view (future issue)
+          History view (future issue)
         </section>
       </main>
     </div>
