@@ -1,6 +1,6 @@
-# DeepGuard-IDS: Real-Time Deepfake Intrusion Detection System
+# Xeptocore: Real-Time Deepfake Intrusion Detection System
 
-DeepGuard-IDS is a lightweight, host-based Intrusion Detection System (IDS) designed to identify deepfakes and AI-manipulated visual content in real-time. Operating with an out-of-band monitoring approach, it can scan active video streams from any third-party applications (such as Zoom, Google Meet, YouTube, or local media players) without requiring API integrations or webhooks.
+Xeptocore is a lightweight, host-based Intrusion Detection System (IDS) designed to identify deepfakes and AI-manipulated visual content in real-time. Operating with an out-of-band monitoring approach, it can scan active video streams from any third-party applications (such as Zoom, Google Meet, YouTube, or local media players) without requiring API integrations or webhooks.
 
 ## Core Features
 
