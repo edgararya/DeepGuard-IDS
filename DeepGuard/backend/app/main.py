@@ -356,6 +356,10 @@ def _process_live_frame(data: dict, source: str) -> list:
     except Exception:
         return [neutral]
 
+    # Every successful inference is persisted, regardless of alert status —
+    # only the push notification below is alert-gated, not the save itself.
+    entry = history_store.add(source, inf["label"], inf["confidence"], timestamp)
+
     alert = inf["confidence"] > ALERT_THRESHOLD
     result = {
         "type": "result",
@@ -369,7 +373,6 @@ def _process_live_frame(data: dict, source: str) -> list:
 
     messages = [result]
     if alert:
-        entry = history_store.add(source, inf["label"], inf["confidence"], timestamp)
         messages.append({"type": "history_update", "entry": entry})
     return messages
 
